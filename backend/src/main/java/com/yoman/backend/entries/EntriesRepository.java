@@ -5,7 +5,9 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
+import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
@@ -67,5 +69,30 @@ public class EntriesRepository {
                 .addValue("duration_seconds", newEntry.durationSeconds());
 
         return jdbc.queryForObject(sql, params, ROW_MAPPER);
+    }
+
+    public List<Entry> listForUser(UUID userId, int limit) {
+        String sql = """
+                SELECT * FROM entries
+                WHERE user_id = :user_id
+                ORDER BY entry_date DESC, created_at DESC
+                LIMIT :limit
+                """;
+        MapSqlParameterSource params = new MapSqlParameterSource()
+                .addValue("user_id", userId)
+                .addValue("limit", limit);
+        return jdbc.query(sql, params, ROW_MAPPER);
+    }
+
+    public Optional<Entry> findById(UUID id, UUID userId) {
+        String sql = "SELECT * FROM entries WHERE id = :id AND user_id = :user_id";
+        MapSqlParameterSource params = new MapSqlParameterSource()
+                .addValue("id", id)
+                .addValue("user_id", userId);
+        try {
+            return Optional.ofNullable(jdbc.queryForObject(sql, params, ROW_MAPPER));
+        } catch (EmptyResultDataAccessException e) {
+            return Optional.empty();
+        }
     }
 }
