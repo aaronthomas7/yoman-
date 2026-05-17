@@ -1,6 +1,6 @@
 import type { Entry } from './types';
 
-export const BACKEND_URL = 'http://192.168.0.2:8080';
+export const BACKEND_URL = 'https://yoman-production.up.railway.app';
 
 export async function fetchEntries(): Promise<Entry[]> {
   const res = await fetch(`${BACKEND_URL}/entries`);
