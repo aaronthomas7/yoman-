@@ -7,22 +7,29 @@ import com.yoman.backend.structuring.StructuredEntry;
 import com.yoman.backend.structuring.StructuringService;
 import com.yoman.backend.transcription.TranscriptionService;
 import java.io.IOException;
+import java.util.List;
 import java.util.UUID;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
 @RestController
+@RequestMapping("/entries")
 public class EntriesController {
 
     /**
      * Hardcoded placeholder until Weekend 8 wires Supabase Auth and we read
      * the real user_id from a verified JWT. For now there's exactly one user
-     * (Aaron) so a stable constant lets us still scope queries by user_id
-     * for Weekend 5 (entry list).
+     * (Aaron) so a stable constant lets us still scope queries by user_id.
      */
     private static final UUID PLACEHOLDER_USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
+
+    private static final int LIST_DEFAULT_LIMIT = 100;
 
     private final TranscriptionService transcription;
     private final StructuringService structuring;
@@ -37,7 +44,7 @@ public class EntriesController {
         this.entries = entries;
     }
 
-    @PostMapping("/entries")
+    @PostMapping
     public Entry create(
             @RequestParam("audio") MultipartFile audio,
             @RequestParam(value = "durationSeconds", required = false) Integer durationSeconds)
@@ -61,5 +68,19 @@ public class EntriesController {
                 durationSeconds);
 
         return entries.insert(toInsert);
+    }
+
+    @GetMapping
+    public List<Entry> list(
+            @RequestParam(value = "limit", required = false, defaultValue = "" + LIST_DEFAULT_LIMIT) int limit) {
+        int clamped = Math.max(1, Math.min(limit, 500));
+        return entries.listForUser(PLACEHOLDER_USER_ID, clamped);
+    }
+
+    @GetMapping("/{id}")
+    public ResponseEntity<Entry> get(@PathVariable UUID id) {
+        return entries.findById(id, PLACEHOLDER_USER_ID)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
     }
 }
