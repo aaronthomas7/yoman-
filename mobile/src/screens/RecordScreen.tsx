@@ -10,7 +10,7 @@ import {
   useAudioRecorder,
   useAudioRecorderState,
 } from 'expo-audio';
-import { createEntry } from '../api';
+import { createEntry, describeError } from '../api';
 import type { RootStackParamList } from '../types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Record'>;
@@ -83,7 +83,7 @@ export function RecordScreen({ navigation }: Props) {
       // Replace, not push, so the back button returns to Home not Record.
       navigation.replace('Detail', { id: entry.id });
     } catch (err) {
-      setStatus(`Error: ${err instanceof Error ? err.message : String(err)}`);
+      setStatus(describeError(err));
     } finally {
       setBusy(false);
     }
