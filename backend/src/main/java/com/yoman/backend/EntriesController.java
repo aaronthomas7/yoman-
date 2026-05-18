@@ -9,6 +9,8 @@ import com.yoman.backend.transcription.TranscriptionService;
 import java.io.IOException;
 import java.util.List;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -21,6 +23,8 @@ import org.springframework.web.multipart.MultipartFile;
 @RestController
 @RequestMapping("/entries")
 public class EntriesController {
+
+    private static final Logger log = LoggerFactory.getLogger(EntriesController.class);
 
     /**
      * Hardcoded placeholder until Weekend 8 wires Supabase Auth and we read
@@ -49,11 +53,20 @@ public class EntriesController {
             @RequestParam("audio") MultipartFile audio,
             @RequestParam(value = "durationSeconds", required = false) Integer durationSeconds)
             throws IOException {
+        long pipelineStart = System.currentTimeMillis();
         String filename = audio.getOriginalFilename() != null ? audio.getOriginalFilename() : "audio.m4a";
         String contentType = audio.getContentType() != null ? audio.getContentType() : "audio/m4a";
+        long audioBytes = audio.getSize();
+        log.info("POST /entries received: {} bytes, contentType={}, duration={}s",
+                audioBytes, contentType, durationSeconds);
 
+        long t0 = System.currentTimeMillis();
         String transcript = transcription.transcribe(audio.getBytes(), filename, contentType);
+        log.info("transcription stage finished in {} ms", System.currentTimeMillis() - t0);
+
+        long t1 = System.currentTimeMillis();
         StructuredEntry structured = structuring.structure(transcript);
+        log.info("structuring stage finished in {} ms", System.currentTimeMillis() - t1);
 
         NewEntry toInsert = new NewEntry(
                 PLACEHOLDER_USER_ID,
@@ -67,7 +80,23 @@ public class EntriesController {
                 structured.tagsSafe(),
                 durationSeconds);
 
-        return entries.insert(toInsert);
+        long t2 = System.currentTimeMillis();
+        Entry saved;
+        try {
+            saved = entries.insert(toInsert);
+        } catch (RuntimeException e) {
+            log.error("persistence stage failed after {} ms", System.currentTimeMillis() - t2, e);
+            throw new PipelineException(
+                    PipelineException.Stage.PERSISTENCE,
+                    "Failed to save entry: " + e.getMessage(),
+                    false,
+                    e);
+        }
+        log.info("persistence stage finished in {} ms", System.currentTimeMillis() - t2);
+        log.info("POST /entries finished in {} ms (id={})",
+                System.currentTimeMillis() - pipelineStart, saved.id());
+
+        return saved;
     }
 
     @GetMapping
