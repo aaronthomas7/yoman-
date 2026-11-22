@@ -1,5 +1,6 @@
 package com.yoman.backend.structuring;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.List;
 
@@ -13,7 +14,11 @@ import java.util.List;
  *
  * The {@code thread} field from the spec is omitted until Weekend 5+ when
  * we have recent_tags to make connections meaningful.
+ *
+ * Unknown fields are ignored so an extra key in Claude's reply can't fail
+ * the whole entry.
  */
+@JsonIgnoreProperties(ignoreUnknown = true)
 public record StructuredEntry(
         String summary,
         @JsonProperty("work_section") String workSection,

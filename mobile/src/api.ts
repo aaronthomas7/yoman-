@@ -2,6 +2,21 @@ import type { Entry } from './types';
 
 export const BACKEND_URL = 'https://yoman-production.up.railway.app';
 
+// Shared app key the backend requires on every request except /health
+// (temporary, until Supabase Auth). Set it in mobile/.env.local, which is
+// git-ignored, and restart Expo with `npx expo start -c`. Expo bakes
+// EXPO_PUBLIC_* values into the app bundle, so anyone holding the app could
+// extract it: fine for personal use, not for a public release.
+const API_KEY = process.env.EXPO_PUBLIC_YOMAN_API_KEY ?? '';
+
+if (!API_KEY) {
+  console.warn('EXPO_PUBLIC_YOMAN_API_KEY is not set: the backend will reject every request.');
+}
+
+function authHeaders(): Record<string, string> {
+  return API_KEY ? { 'X-Yoman-Key': API_KEY } : {};
+}
+
 // Server-side budget for POST /entries is ~3 min (Whisper 120s + Claude 60s
 // plus headroom). Client gives up at 200s so the phone never hangs forever
 // even if the server somehow does.
@@ -44,11 +59,24 @@ function withTimeout(ms: number): { signal: AbortSignal; cancel: () => void; did
   };
 }
 
+/** Turns a non-2xx response into a PipelineError, reading a JSON body if there is one. */
+async function errorFrom(res: Response): Promise<PipelineError> {
+  const text = await res.text();
+  let body: PipelineErrorBody | string = text;
+  try {
+    const parsed: unknown = JSON.parse(text);
+    if (parsed && typeof parsed === 'object') body = parsed as PipelineErrorBody;
+  } catch {
+    // Plain text body — leave as-is.
+  }
+  return new PipelineError(res.status, body);
+}
+
 export async function fetchEntries(): Promise<Entry[]> {
   const t = withTimeout(LIST_TIMEOUT_MS);
   try {
-    const res = await fetch(`${BACKEND_URL}/entries`, { signal: t.signal });
-    if (!res.ok) throw new PipelineError(res.status, await res.text());
+    const res = await fetch(`${BACKEND_URL}/entries`, { headers: authHeaders(), signal: t.signal });
+    if (!res.ok) throw await errorFrom(res);
     return (await res.json()) as Entry[];
   } catch (err) {
     if (t.didTimeout()) throw new PipelineError(0, { timeout: true, message: 'Network timed out' });
@@ -61,8 +89,8 @@ export async function fetchEntries(): Promise<Entry[]> {
 export async function fetchEntry(id: string): Promise<Entry> {
   const t = withTimeout(LIST_TIMEOUT_MS);
   try {
-    const res = await fetch(`${BACKEND_URL}/entries/${id}`, { signal: t.signal });
-    if (!res.ok) throw new PipelineError(res.status, await res.text());
+    const res = await fetch(`${BACKEND_URL}/entries/${id}`, { headers: authHeaders(), signal: t.signal });
+    if (!res.ok) throw await errorFrom(res);
     return (await res.json()) as Entry;
   } catch (err) {
     if (t.didTimeout()) throw new PipelineError(0, { timeout: true, message: 'Network timed out' });
@@ -83,21 +111,14 @@ export async function createEntry(audioUri: string, durationSeconds: number): Pr
 
   const t = withTimeout(CREATE_TIMEOUT_MS);
   try {
+    // Don't set Content-Type here: fetch adds the multipart boundary itself.
     const res = await fetch(`${BACKEND_URL}/entries`, {
       method: 'POST',
+      headers: authHeaders(),
       body: form,
       signal: t.signal,
     });
-    if (!res.ok) {
-      const text = await res.text();
-      let body: PipelineErrorBody | string = text;
-      try {
-        body = JSON.parse(text) as PipelineErrorBody;
-      } catch {
-        // Plain text body — leave as-is.
-      }
-      throw new PipelineError(res.status, body);
-    }
+    if (!res.ok) throw await errorFrom(res);
     return (await res.json()) as Entry;
   } catch (err) {
     if (t.didTimeout()) {
@@ -123,6 +144,10 @@ export function describeError(err: unknown): string {
     if (err.stage) {
       return `Couldn't ${stageVerb(err.stage)} this entry. Tap Record to retry.`;
     }
+    if (err.status === 401) {
+      return 'The server rejected this app’s key. Check EXPO_PUBLIC_YOMAN_API_KEY in mobile/.env.local.';
+    }
+    if (err.status === 503 && err.serverMessage) return err.serverMessage;
     if (err.status >= 500) return `Server error (${err.status}). Try again in a moment.`;
     if (err.status > 0) return `Request failed (${err.status}).`;
     return err.message || 'Network error.';
